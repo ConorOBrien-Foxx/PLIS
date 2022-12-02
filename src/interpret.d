@@ -52,8 +52,12 @@ int decodeSequenceNumber(string s) {
     return sum;
 }
 
+bool isANumber(string name) {
+    return name.length >= 2 && isDigit(name[1]);
+}
+
 string normalizeSequenceName(string name) {
-    if(name.length >= 2 && isDigit(name[1])) {
+    if(isANumber(name)) {
         string digits;
         for(uint i = 1; i < name.length; i++) {
             assert(isDigit(name[i]),

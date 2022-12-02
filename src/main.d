@@ -13,7 +13,7 @@ import std.range : array;
 import std.stdio;
 
 void main(string[] args) {
-    bool encode, decode, help, infinite;
+    bool autoGolf, encode, decode, help, infinite;
     string lowerIndex = "0";
     string upperIndex = "20";
     string fileName;
@@ -21,6 +21,8 @@ void main(string[] args) {
         args,
         std.getopt.config.bundling,
         "e|encode", "Encode/Decode a function name", &encode,
+        "g|golf", "Auto golfs the supplied code", &autoGolf,
+        // TODO: debug filter for particular source(s)
         "d|debug", "Show debugging statements", &debugging,
         "h|help", "Prints help dialogue", &help,
         "l|lower", "Sets lower index", &lowerIndex,
@@ -54,6 +56,24 @@ void main(string[] args) {
         code = args[1];
         dataStart = 2;
     }
+    
+    if(autoGolf) {
+        foreach(tok; code.tokenize) {
+            if(tok.type == TokenType.Word
+            && isANumber(tok.raw)) {
+                write(encodeSequenceNumber(
+                    normalizeSequenceName(tok.raw)[1..$].to!int
+                ));
+            }
+            else if(tok.type != TokenType.Whitespace
+                 && tok.type != TokenType.Comment) {
+                write(tok.raw);
+            }
+        }
+        writeln();
+        return;
+    }
+    
     BigInt[] data = args[dataStart..$]
         .map!BigInt
         .array;

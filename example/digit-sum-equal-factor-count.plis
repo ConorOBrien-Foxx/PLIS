@@ -1,0 +1,13 @@
+1 + @(
+  A000007@(
+    # square each difference
+    {$0*$0}
+      # over each positive integer
+      {
+        # digit sum
+        ([$0+$1] {$0%10} [$0/10] (A000012*$0))@(A055642@$0)
+        -
+        # factor count
+        [$0+$1](A7@($0%A000027))@$0
+      } A000027)
+  )
