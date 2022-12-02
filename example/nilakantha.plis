@@ -1,0 +1,9 @@
+# cumulative sum
+[$0 + $1] (
+    # numerator: 3, then A010709, constant 4 sequence
+    # multiplied by a power of 10 with input magnitude
+    10^$0 * 3:A010709
+    # denominator: 1, then A069074, a(n) = (2*n+2)*(2*n+3)*(2*n+4)
+    # multiplied by A033999, alternating signs
+          / 1:(A033999 * A069074)
+)
