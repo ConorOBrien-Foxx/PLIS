@@ -1,3 +1,4 @@
+# investigation: fraction integer representation
 def continued_frac(r)
     i = r.floor
     f = r - i

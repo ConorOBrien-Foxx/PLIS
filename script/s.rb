@@ -1,3 +1,4 @@
+# investigation: upperbound of precision for nikantha series
 arr = []
 upper = 3684031
 20.upto(30) { |i|
