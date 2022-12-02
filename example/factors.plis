@@ -1,0 +1,11 @@
+# cumulative sum: running total
+[$0 + $1] (
+    # index into characteristic
+    # this is equivalent to saying "x == 0"
+    A000007@(
+        # compute input mod positive ints
+        $0 % A000027
+    )
+)
+# index by input: "last" total
+@$0

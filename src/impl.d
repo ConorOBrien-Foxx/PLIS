@@ -165,7 +165,7 @@ alias A000045 = Fibonacci!([0, 1]);
 
 /** trivial data modifiers **/
 // positive integers, offset=1,2
-BigInt A000027(BigInt index) { return index; }
+BigInt A000027(BigInt index) { return index + 1; }
 // non-negative integers, offset=0,3
 BigInt A001477(BigInt index) { return index; }
 // a(n)=2-n
@@ -193,12 +193,13 @@ BigInt A069074(BigInt index) { return 24 * A000330(index + 1); }
 // a(n)=n-1
 BigInt A023443(BigInt index) { return index - 1; }
 // a(n)=n+1
-BigInt A020725(BigInt index) { return index + 1; }
+BigInt A020725(BigInt index) { return index + 2; }
 
 /** mod/repeat **/
 alias A136619 = prependCons!([1],
     (BigInt index) => [1, 4, 2].repeatTake(index));
 //// trivial sequences
+// characteristic; a(n)=0^n
 alias A000007 = prependCons!([1], A000004);
 // a(n)=0
 BigInt A000004(BigInt index) { return BigInt(0); }
