@@ -415,6 +415,31 @@ Atom mapFor(Atom a, Token[] children) {
     });
 }
 
+Atom trueIndicesFor(Atom a) {
+    SequenceFunction fn = a.match!(
+        (BigInt _) => assert(0, "Cannot fold an integer"),
+        (SequenceFunction a) => a,
+    );
+    
+    BigInt[] cachedList;
+    BigInt pointer = 0;
+    return Atom((BigInt n) {
+        assert(n >= 0, "Cannot index by negative value");
+        BigInt value;
+        // will not run if index n is present in cache
+        while(n >= cachedList.length) {
+            // find one entry
+            while((value = fn(pointer)) == 0) {
+                pointer++;
+            }
+            // and add it to the list
+            cachedList ~= pointer;
+            pointer++;
+        }
+        return cachedList[n.to!uint];
+    });
+}
+
 SequenceFunction interpret(Token[] shunted, BigInt[] referenceData) {
     debugPlis("interpret", "-- start --");
     debugPlis("interpret", "refdata = ", referenceData);
@@ -460,6 +485,12 @@ SequenceFunction interpret(Token[] shunted, BigInt[] referenceData) {
                         (BigInt a) => Atom(-a),
                         (SequenceFunction fn) => Atom((BigInt n) => -fn(n)),
                     );
+                }
+                // indices where true
+                else if(tok.raw == "@") {
+                    Atom a = stack.back;
+                    stack.popBack;
+                    stack ~= trueIndicesFor(a);
                 }
                 else {
                     assert(0, "Unknown unary operator: " ~ tok.raw);
