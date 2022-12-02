@@ -1,5 +1,6 @@
 module plis.main;
 
+import plis.debugger;
 import plis.impl;
 import plis.interpret;
 
@@ -20,6 +21,7 @@ void main(string[] args) {
         args,
         std.getopt.config.bundling,
         "e|encode", "Encode/Decode a function name", &encode,
+        "d|debug", "Show debugging statements", &debugging,
         "h|help", "Prints help dialogue", &help,
         "l|lower", "Sets lower index", &lowerIndex,
         "u|upper", "Sets upper index", &upperIndex,

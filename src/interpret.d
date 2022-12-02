@@ -1,6 +1,7 @@
 module plis.interpret;
 
 import plis.impl;
+import plis.debugger;
 
 import std.algorithm;
 import std.ascii;
@@ -71,10 +72,10 @@ string normalizeSequenceName(string name) {
 enum TokenType {
     Unknown, Word, Operator, UnaryOperator,
     Comment, Reference,
-    //Fold, Map,
     Integer, Whitespace,
     LeftParen, RightParen,
     LeftFold, RightFold,
+    LeftMap, RightMap,
 }
 struct Token {
     TokenType type;
@@ -86,18 +87,22 @@ struct Token {
     }
     
     bool unary() {
-        return type == TokenType.UnaryOperator || type == TokenType.RightFold;
+        return type == TokenType.UnaryOperator
+            || type == TokenType.RightFold
+            || type == TokenType.RightMap;
     }
     
     bool leftParen() {
-        return type == TokenType.LeftParen || type == TokenType.LeftFold;
+        return type == TokenType.LeftParen
+            || type == TokenType.LeftFold
+            || type == TokenType.LeftMap;
     }
 }
 
 // sorted by greedy precedence (i.e. longest first)
 static string[] operators = [
     "<<", ">>",
-    "*", "+", "-", "/", "@", ":", "^",
+    "*", "+", "-", "/", "%", "@", ":", "^",
     // "|",
 ];
 static int[string] precedence;
@@ -113,6 +118,7 @@ static this() {
         "^":    8,
         "*":    7,
         "/":    7,
+        "%":    7,
         "+":    4,
         "-":    4,
     ];
@@ -125,6 +131,7 @@ static this() {
         "/":    false,
         "+":    false,
         "-":    false,
+        "%":    false,
         // "|":    false,
         ":":    true,
     ];
@@ -181,6 +188,14 @@ Token[] tokenize(string code) {
         }
         else if(code[i] == ']') {
             cur.type = TokenType.RightFold;
+            cur.raw ~= code[i];
+        }
+        else if(code[i] == '{') {
+            cur.type = TokenType.LeftMap;
+            cur.raw ~= code[i];
+        }
+        else if(code[i] == '}') {
+            cur.type = TokenType.RightMap;
             cur.raw ~= code[i];
         }
         else if(code[i] == '#') {
@@ -287,6 +302,7 @@ Token[] shunt(Token[] tokens) {
                 break;
             
             case TokenType.LeftFold:
+            case TokenType.LeftMap:
                 opStack ~= tok;
                 queueStack ~= outputQueue;
                 outputQueue = [];
@@ -298,19 +314,33 @@ Token[] shunt(Token[] tokens) {
                     opStack.popBack;
                 }
                 assert(!opStack.empty && opStack.back.type == TokenType.LeftFold,
-                    "Unbalanced right parenthesis");
+                    "Unbalanced right bracket");
                 opStack.popBack;
                 tok.children = outputQueue;
                 outputQueue = queueStack.back;
                 queueStack.popBack;
                 opStack ~= tok;
-                // TODO:? handle function calls
+                break;
+            
+            case TokenType.RightMap:
+                // TODO: condense & abstract behavior with above
+                while(!opStack.empty && opStack.back.type != TokenType.LeftMap) {
+                    outputQueue ~= opStack.back;
+                    opStack.popBack;
+                }
+                assert(!opStack.empty && opStack.back.type == TokenType.LeftMap,
+                    "Unbalanced right brace");
+                opStack.popBack;
+                tok.children = outputQueue;
+                outputQueue = queueStack.back;
+                queueStack.popBack;
+                opStack ~= tok;
                 break;
         }
     }
     
     while(!opStack.empty) {
-        assert(!opStack.back.leftParen, "Unbalanced left parenthesis");
+        assert(!opStack.back.leftParen, "Unbalanced left parenthesis " ~ opStack.back.raw);
         outputQueue ~= opStack.back;
         opStack.popBack;
     }
@@ -346,30 +376,59 @@ BigInt execOp(alias op)(BigInt a, BigInt b) {
     }
 }
 
-
 Atom foldFor(Atom a, Token[] children) {
     SequenceFunction fn = a.match!(
         (BigInt _) => assert(0, "Cannot fold an integer"),
         (SequenceFunction a) => a,
     );
     return Atom(unaryRecursiveMemo((BigInt n, This) {
+        debugPlis("cfold", "-- start --");
         if(n <= 0) {
-            return fn(n);
+            auto result = fn(n);
+            debugPlis("cfold", n, " -> ", result);
+            return result;
         }
+        debugPlis("cfold", "children = ", children.map!(a => a.raw));
+        debugPlis("cfold", "n = ", n, " ; getting args");
         BigInt[] args = [ This(n - 1), fn(n) ];
+        debugPlis("cfold", "args = ", args);
         auto subFn = children.interpret(args);
-        return subFn(BigInt(0));
+        auto result = subFn(BigInt(0));
+        debugPlis("cfold", args, " -> ", result);
+        return result;
     }));
 }
 
+Atom mapFor(Atom a, Token[] children) {
+    SequenceFunction fn = a.match!(
+        (BigInt _) => assert(0, "Cannot fold an integer"),
+        (SequenceFunction a) => a,
+    );
+    return Atom((BigInt n) {
+        debugPlis("map", "-- start --");
+        auto value = fn(n);
+        debugPlis("map", "children = ", children.map!(a => a.raw));
+        auto subFn = children.interpret([ value ]);
+        auto result = subFn(BigInt(0));
+        debugPlis("map", n, " -> ", value, " -> ", result);
+        return result;
+    });
+}
+
 SequenceFunction interpret(Token[] shunted, BigInt[] referenceData) {
+    debugPlis("interpret", "-- start --");
+    debugPlis("interpret", "refdata = ", referenceData);
     Atom[] stack;
     foreach(tok; shunted) {
+        debugPlis("interpret", "`", tok.raw, "` ",
+            tok.children.map!(a => a.raw).join(" "),
+            " | ", stack);
         InterpretSwitch:
         final switch(tok.type) {
             case TokenType.Unknown:
-            case TokenType.LeftParen:
             case TokenType.LeftFold:
+            case TokenType.LeftMap:
+            case TokenType.LeftParen:
             case TokenType.RightParen:
             case TokenType.Comment:
                 assert(0, "Unexpected token: " ~ to!string(tok));
@@ -413,8 +472,14 @@ SequenceFunction interpret(Token[] shunted, BigInt[] referenceData) {
                 stack ~= foldFor(a, tok.children);
                 break;
             
+            case TokenType.RightMap:
+                Atom a = stack.back;
+                stack.popBack;
+                stack ~= mapFor(a, tok.children);
+                break;
+            
             case TokenType.Operator:
-                static foreach(simpleOp; ["+", "-", "*", "/", "^"]) {
+                static foreach(simpleOp; ["+", "-", "*", "/", "%", "^"]) {
                     if(tok.raw == simpleOp) {
                         Atom b = stack.back;
                         stack.popBack;
@@ -465,6 +530,7 @@ SequenceFunction interpret(Token[] shunted, BigInt[] referenceData) {
                 break;
         }
     }
+    debugPlis("interpret", "-- done --");
     if(stack.empty) {
         return callableFrom(Atom(BigInt(0)));
     }

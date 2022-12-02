@@ -1,0 +1,14 @@
+(
+    # cumulative sum
+    [$0 + $1]
+        # mod 10 each, giving list of digits
+        {$0 % 10}
+            # cumulative divide lhs by 10
+            # e.g. for $0=1234, this sequence is [1234, 123, 12, 1, 0, ...]
+            [$0 / 10]
+                # constant sequence of $0
+                (A000012 * $0)
+)@(
+    # index by digit length - "last" term in sum
+    A055642@$0
+)

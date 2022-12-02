@@ -1,5 +1,7 @@
 module plis.impl;
 
+import plis.debugger;
+
 import std.algorithm;
 import std.bigint;
 import std.conv : to;
@@ -45,10 +47,14 @@ auto unaryMemo(alias fn)(BigInt n) {
     }
 }
 
+static uint uuid = 0;
 auto unaryRecursiveMemo(BigInt delegate(BigInt, SequenceFunction) seq) {
-    static BigInt[BigInt] cache;
+    BigInt[BigInt] cache;
+    auto myUuid = "rec@" ~ uuid++.to!string;
     
     BigInt rec(BigInt n) {
+        debugPlis(myUuid, "-- start --");
+        debugPlis(myUuid, "cache = ", cache);
         auto has = n in cache;
         if(has) {
             return *has;
@@ -139,6 +145,8 @@ static this() {
         else            return This(n / 2) + This(n / 2 + 1);
     });
 }
+// digit length
+BigInt A055642(BigInt n) { return BigInt(n.to!string.length); }
 
 /** eulerTransform **/
 alias A000726 = eulerTransform!(a => [1,1,0].repeatTake(a));
