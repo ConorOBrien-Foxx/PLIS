@@ -571,6 +571,8 @@ static this() {
         "%$0;%10;$0".tokenize.shunt;
     standardLibrary["catat"] =
         "$mask(A7@(A1477/$1))mask*$0.$1+(1-mask)*$2>>$1".tokenize.shunt;
+    standardLibrary["digits"] =
+        "$size(A055642@$0)($0/A011557%10)@(size-A27).size".tokenize.shunt;
 }
 
 Atom foldFor(Atom a, Token[] children, StateInformation state) {
