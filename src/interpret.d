@@ -83,6 +83,14 @@ enum TokenType {
     LeftFold, RightFold,
     LeftMap, RightMap,
 }
+
+    
+bool leftParen(TokenType type) {
+    return type == TokenType.LeftParen
+        || type == TokenType.LeftFold
+        || type == TokenType.LeftMap;
+}
+
 struct Token {
     TokenType type;
     string raw;
@@ -102,9 +110,7 @@ struct Token {
     }
     
     bool leftParen() {
-        return type == TokenType.LeftParen
-            || type == TokenType.LeftFold
-            || type == TokenType.LeftMap;
+        return type.leftParen;
     }
     
     bool operator() {
@@ -116,7 +122,7 @@ struct Token {
 // sorted by greedy precedence (i.e. longest first)
 static string[] operators = [
     "<<", ">>",
-    "*", "+", "-", "/", "%", "@", ":", "^",
+    "*", "+", "-", "/", "%", "@", ":", "^", ".",
     // "|",
 ];
 static int[string] precedence;
@@ -128,7 +134,7 @@ static this() {
         "<<":   10,
         ">>":   10,
         ":":    10,
-        // "|":    10,
+        ".":    10,
         "^":    8,
         "*":    7,
         "/":    7,
@@ -140,6 +146,7 @@ static this() {
         "@":    false,
         "<<":   false,
         ">>":   false,
+        ".":    false,
         "^":    true,    
         "*":    false,
         "/":    false,
@@ -268,10 +275,10 @@ Token[] tokenize(string code) {
                     }
                 }
                 if(matched) {
-                    // determine unary or binary
+                    // determine if unary or binary
                     cur.type = TokenType.Operator;
                     if(lastSignificantType == TokenType.Unknown
-                    || lastSignificantType == TokenType.LeftParen
+                    || lastSignificantType.leftParen
                     || lastSignificantType == TokenType.Operator
                     || lastSignificantType == TokenType.Break
                     || lastSignificantType == TokenType.Comma
@@ -307,6 +314,15 @@ Token[] shunt(Token[] tokens) {
     
     bool lastNeedsLeftParenthesis = false;
     
+    void simpleFlush(bool enforce = false) {
+        while(!opStack.empty && !opStack.back.leftParen) {
+            assert(!enforce || !opStack.back.leftParen,
+                "Unclosed left parenthesis " ~ opStack.back.raw);
+            outputQueue ~= opStack.back;
+            opStack.popBack;
+        }
+    }
+    
     foreach(tok; tokens) {
         debugPlis("shunt", "token = ", tok);
         debugPlis("shunt", "opstack = ", opStack);
@@ -315,7 +331,7 @@ Token[] shunt(Token[] tokens) {
         debugPlis("shunt");
         
         assert(!lastNeedsLeftParenthesis || tok.type == TokenType.LeftParen,
-            "Expected left parenthesis following function name");
+            "Expected left parenthesis following function/definition");
         lastNeedsLeftParenthesis = false;
         
         final switch(tok.type) {
@@ -330,6 +346,7 @@ Token[] shunt(Token[] tokens) {
             case TokenType.Comma:
                 assert(!arities.empty, "Comma cannot appear at top level");
                 arities.back++;
+                simpleFlush();
                 break;
             
             case TokenType.String:
@@ -385,11 +402,7 @@ Token[] shunt(Token[] tokens) {
                 break;
             
             case TokenType.Break:
-                while(!opStack.empty && !opStack.back.leftParen) {
-                    // assert(!opStack.back.leftParen, "Unclosed left parenthesis " ~ opStack.back.raw);
-                    outputQueue ~= opStack.back;
-                    opStack.popBack;
-                }
+                simpleFlush();
                 break;
             
             case TokenType.LeftParen:
@@ -471,11 +484,7 @@ Token[] shunt(Token[] tokens) {
         }
     }
     
-    while(!opStack.empty) {
-        assert(!opStack.back.leftParen, "Unbalanced left parenthesis " ~ opStack.back.raw);
-        outputQueue ~= opStack.back;
-        opStack.popBack;
-    }
+    simpleFlush(true);
     debugPlis("shunt", "content after shunt:");
     debugPlis("shunt", "opstack = ", opStack);
     debugPlis("shunt", "outqueue = ", outputQueue);
@@ -560,6 +569,8 @@ Token[][string] standardLibrary;
 static this() {
     standardLibrary["print"] =
         "%$0;%10;$0".tokenize.shunt;
+    standardLibrary["catat"] =
+        "$mask(A7@(A1477/$1))mask*$0.$1+(1-mask)*$2>>$1".tokenize.shunt;
 }
 
 Atom foldFor(Atom a, Token[] children, StateInformation state) {
@@ -799,6 +810,57 @@ Atom interpret(Token[] shunted, StateInformation state) {
                             ),
                             (_1, _2) => assert(0, "Cannot prepend")
                         )(prepend, sequence);
+                        break;
+                    
+                    // clamp sequence
+                    case ".":
+                        Atom b = stack.back;
+                        stack.popBack;
+                        Atom a = stack.back;
+                        stack.popBack;
+                        stack ~= match!(
+                            // n.seq
+                            (BigInt a, SequenceFunction seq) =>
+                                assert(0, "n.seq is unimplemented"),
+                            // seq.n - only first n
+                            (SequenceFunction seq, BigInt b) =>
+                                Atom((BigInt n) => n < b ? seq(n) : BigInt(0)),
+                            (_1, _2) => assert(0, "Cannot clamp")
+                        )(a, b);
+                        break;
+                        
+                    // shift sequence right
+                    case ">>":
+                        Atom by = stack.back;
+                        stack.popBack;
+                        BigInt amt = by.match!(
+                            (BigInt a) => a,
+                            (SequenceFunction fn) => assert(0, "Cannot shift by a sequence"),
+                        );
+                        Atom seq = stack.back;
+                        stack.popBack;
+                        stack ~= seq.match!(
+                            (BigInt _) => assert(0, "Cannot right shift integer"),
+                            (SequenceFunction fn) => Atom((BigInt n) => 
+                                fn(max(BigInt(0), n - amt))),
+                        );
+                        break;
+                        
+                    // shift sequence left
+                    case "<<":
+                        Atom by = stack.back;
+                        stack.popBack;
+                        BigInt amt = by.match!(
+                            (BigInt a) => a,
+                            (SequenceFunction fn) => assert(0, "Cannot shift by a sequence"),
+                        );
+                        Atom seq = stack.back;
+                        stack.popBack;
+                        stack ~= seq.match!(
+                            (BigInt _) => assert(0, "Cannot left shift integer"),
+                            (SequenceFunction fn) => Atom((BigInt n) => 
+                                fn(max(BigInt(0), n + amt))),
+                        );
                         break;
                     
                     default:

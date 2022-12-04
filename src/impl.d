@@ -26,7 +26,7 @@ BigInt[] divisors(BigInt n) {
 
 BigInt bpow(BigInt base, BigInt p) {
     if(p == 0) return BigInt(1);
-    if(base == 0) return BigInt(0);
+    if(base == 0 || p < 0) return BigInt(0);
     BigInt res = base;
     foreach(k; BigInt(1)..p) {
         res *= base;
@@ -192,6 +192,8 @@ BigInt A000079(BigInt index) { return bpow(BigInt(2), index); }
 BigInt A000330(BigInt index) { return index * (index + 1) * (2 * index + 1) / 6; }
 // a(n)=n*(n+1)*(n+2)/6 ; tetrahedral numbers
 BigInt A000292(BigInt index) { return index * (index + 1) * (index + 2) / 6; }
+// a(n)=10^n
+BigInt A011557(BigInt index) { return bpow(BigInt(10), index); }
 // a(n)=(2n+2)*(2n+3)*(2n+4)
 BigInt A069074(BigInt index) { return 24 * A000330(index + 1); }
 
