@@ -76,7 +76,7 @@ string normalizeSequenceName(string name) {
 enum TokenType {
     Unknown, Word, Operator, UnaryOperator,
     Comment, Reference, WordReference,
-    Integer, Whitespace,
+    Integer, String, Whitespace,
     Comma, Break,
     LeftParen, RightParen,
     LeftFold, RightFold,
@@ -175,7 +175,7 @@ Token[] tokenize(string code) {
         else if(code[i] == '$') {
             cur.type = TokenType.Reference;
             assert(i < code.length, "Expected number after `$`");
-            cur.raw ~= code[i++]; // skip initial $
+            cur.raw ~= code[i++]; // add initial $
             while(i < code.length && isDigit(code[i])) {
                 cur.raw ~= code[i++];
             }
@@ -183,13 +183,22 @@ Token[] tokenize(string code) {
         }
         else if(code[i] == '&') {
             cur.type = TokenType.WordReference;
-            cur.raw ~= code[i++]; // skip iniitial &
+            cur.raw ~= code[i++]; // add initial &
             assert(i < code.length, "Expected word after `&`");
             assert(isWordInitial(code[i]), "Cannot start identifier with " ~ code[i]);
             while(i < code.length && isWordBody(code[i])) {
                 cur.raw ~= code[i++];
             }
             i--;
+        }
+        else if(code[i] == '"') {
+            cur.type = TokenType.String;
+            cur.raw ~= code[i++]; // add initial "
+            while(i < code.length && code[i] != '"') {
+                cur.raw ~= code[i++];
+            }
+            cur.raw ~= code[i]; // add final "
+            assert(cur.raw.length > 1 && cur.raw.back == '"', "Expected closing quote");
         }
         else if(isWhite(code[i])) {
             // TODO: collapse strings of consecutive whitespace
@@ -302,6 +311,7 @@ Token[] shunt(Token[] tokens) {
                 arities.back++;
                 break;
             
+            case TokenType.String:
             case TokenType.Integer:
             case TokenType.Reference:
                 outputQueue ~= tok;
@@ -583,6 +593,12 @@ Atom interpret(Token[] shunted, StateInformation state) {
                 
             case TokenType.Integer:
                 stack ~= Atom(BigInt(tok.raw));
+                break;
+            
+            case TokenType.String:
+                string inner = tok.raw[1..$-1];
+                stack ~= Atom((BigInt n) =>
+                    BigInt(n < inner.length ? inner[n.to!uint].to!int : 0));
                 break;
             
             case TokenType.WordReference:

@@ -1,2 +1,3 @@
 &R($0@@i@VfB)
-print(R(117:109:98:114:101:108:108:97:A4))
+print(R("umbrella"))
+print(R("Hello, World!"))
