@@ -1,2 +1,3 @@
-# https://codegolf.stackexchange.com/questions/241267/remove-odd-indices-and-double-the-even-indices
-@A35
+&remove_odd_double_even($0@@A35@A004526)
+# showcase with fibonacci
+remove_odd_double_even(A000045)

@@ -168,6 +168,8 @@ alias A000045 = Fibonacci!([0, 1]);
 BigInt A000027(BigInt index) { return index + 1; }
 // non-negative integers, offset=0,3
 BigInt A001477(BigInt index) { return index; }
+// non-negative integers repeated
+BigInt A004526(BigInt index) { return index / 2; }
 // a(n)=2-n
 BigInt A022958(BigInt index) { return 2 - index; }
 // a(n)=40-n
@@ -176,10 +178,12 @@ BigInt A022996(BigInt index) { return 40 - index; }
 BigInt A001489(BigInt index) { return -index; }
 
 /** multiplication/division **/
-// a(n)=2n
+// a(n)=2n ; even numbers
 BigInt A005843(BigInt index) { return index * 2; }
-// a(n)=2n+1
+// a(n)=2n+1 ; odd numbers
 BigInt A005408(BigInt index) { return index * 2 + 1; }
+// a(n)=2*floor(n/2) + 1 ; odd numbers repeated
+BigInt A109613(BigInt index) { return A005408(index / 2); }
 // a(n)=3n
 BigInt A008585(BigInt index) { return index * 3; }
 // a(n)=2^n

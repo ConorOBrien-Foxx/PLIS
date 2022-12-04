@@ -79,7 +79,7 @@ void main(string[] args) {
         .map!BigInt
         .map!Atom
         .array;
-    
+    state.functionWords = standardLibrary;
     
     auto fn = code.interpret(state).callableFrom;
     BigInt index = lowerIndex;

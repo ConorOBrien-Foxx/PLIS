@@ -77,7 +77,7 @@ enum TokenType {
     Unknown, Word, Operator, UnaryOperator,
     Comment, Reference, WordReference,
     Integer, Whitespace,
-    Comma,
+    Comma, Break,
     LeftParen, RightParen,
     LeftFold, RightFold,
     LeftMap, RightMap,
@@ -224,6 +224,10 @@ Token[] tokenize(string code) {
             cur.type = TokenType.Comma;
             cur.raw ~= code[i];
         }
+        else if(code[i] == ';') {
+            cur.type = TokenType.Break;
+            cur.raw ~= code[i];
+        }
         else if(code[i] == '#') {
             cur.type = TokenType.Comment;
             while(i < code.length && code[i] != '\n') {
@@ -248,6 +252,7 @@ Token[] tokenize(string code) {
                     if(lastSignificantType == TokenType.Unknown
                     || lastSignificantType == TokenType.LeftParen
                     || lastSignificantType == TokenType.Operator
+                    || lastSignificantType == TokenType.Break
                     || lastSignificantType == TokenType.Comma
                     || lastSignificantType == TokenType.UnaryOperator) {
                         cur.type = TokenType.UnaryOperator;
@@ -274,9 +279,14 @@ Token[] shunt(Token[] tokens) {
     bool[string] functionWords;
     int[] arities = [];
     
+    foreach(key; standardLibrary.keys) {
+        functionWords[key] = true;
+    }
+    
     foreach(tok; tokens) {
         debugPlis("shunt", "opstack = ", opStack);
         debugPlis("shunt", "outqueue = ", outputQueue);
+        debugPlis("shunt", "queueStack = ", queueStack);
         debugPlis("shunt");
         final switch(tok.type) {
             case TokenType.Unknown:
@@ -336,6 +346,14 @@ Token[] shunt(Token[] tokens) {
                 opStack ~= tok;
                 break;
             
+            case TokenType.Break:
+                while(!opStack.empty && !opStack.back.leftParen) {
+                    // assert(!opStack.back.leftParen, "Unclosed left parenthesis " ~ opStack.back.raw);
+                    outputQueue ~= opStack.back;
+                    opStack.popBack;
+                }
+                break;
+            
             case TokenType.LeftParen:
                 opStack ~= tok;
                 queueStack ~= outputQueue;
@@ -366,6 +384,7 @@ Token[] shunt(Token[] tokens) {
                     }
                 }
                 outputQueue = queueStack.back ~ outputQueue;
+                queueStack.popBack;
                 arities.popBack;
                 break;
             
@@ -446,6 +465,7 @@ BigInt execOp(alias op)(BigInt a, BigInt b) {
     }
 }
 
+Token[][string] standardLibrary;
 struct StateInformation {
     Atom[] referenceData;
     Token[][string] functionWords;
@@ -462,6 +482,11 @@ struct StateInformation {
         assert(index >= 0 && index < referenceData.length, "Out of bounds reference index");
         return referenceData[index];
     }
+}
+
+static this() {
+    standardLibrary["print"] =
+        "%$0;%10;$0".tokenize.shunt;
 }
 
 Atom foldFor(Atom a, Token[] children, StateInformation state) {
@@ -534,9 +559,9 @@ Atom trueIndicesFor(Atom a) {
 
 Atom interpret(Token[] shunted, StateInformation state) {
     debugPlis("interpret", "-- start --");
-    debugPlis("interpret", "state = ", state);
     Atom[] stack;
     foreach(tok; shunted) {
+        debugPlis("interpret", "state = ", state);
         debugPlis("interpret", "`", tok.raw, "` ",
             tok.children.map!(a => a.raw).join(" "),
             " | ", stack);
@@ -549,6 +574,7 @@ Atom interpret(Token[] shunted, StateInformation state) {
             case TokenType.RightParen:
             case TokenType.Comment:
             case TokenType.Comma:
+            case TokenType.Break:
                 assert(0, "Unexpected token: " ~ to!string(tok));
             
             case TokenType.Whitespace:
@@ -578,7 +604,9 @@ Atom interpret(Token[] shunted, StateInformation state) {
                 else {
                     // sequence reference
                     string properName = normalizeSequenceName(tok.raw);
-                    stack ~= Atom(ftable[properName]);
+                    auto seqfn = properName in ftable;
+                    assert(seqfn, "Unknown/unimplemented sequence: " ~ properName);
+                    stack ~= Atom(*seqfn);
                 }
                 break;
             
