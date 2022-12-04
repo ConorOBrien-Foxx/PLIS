@@ -496,6 +496,22 @@ SequenceFunction interpret(Token[] shunted, BigInt[] referenceData) {
                     stack.popBack;
                     stack ~= trueIndicesFor(a);
                 }
+                // output operator
+                else if(tok.raw == "%") {
+                    import std.stdio : write;
+                    Atom a = stack.back;
+                    a.match!(
+                        (BigInt b) => write(b.to!char),
+                        (SequenceFunction fn) {
+                            BigInt index = 0;
+                            BigInt cur;
+                            while((cur = fn(index)) > 0) {
+                                write(cur.to!char);
+                                index++;
+                            }
+                        }
+                    );
+                }
                 else {
                     assert(0, "Unknown unary operator: " ~ tok.raw);
                 }

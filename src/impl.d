@@ -178,6 +178,8 @@ BigInt A001489(BigInt index) { return -index; }
 /** multiplication/division **/
 // a(n)=2n
 BigInt A005843(BigInt index) { return index * 2; }
+// a(n)=2n+1
+BigInt A005408(BigInt index) { return index * 2 + 1; }
 // a(n)=3n
 BigInt A008585(BigInt index) { return index * 3; }
 // a(n)=2^n
