@@ -57,10 +57,22 @@ void main(string[] args) {
         dataStart = 2;
     }
     
+    StateInformation state;
+    state.referenceData = args[dataStart..$]
+        .map!BigInt
+        .map!Atom
+        .array;
+    state.functionWords = standardLibrary;
+    
     if(autoGolf) {
+        bool[string] functionWords;
+        foreach(key; standardLibrary.keys) {
+            functionWords[key] = true;
+        }
         foreach(tok; code.tokenize) {
             if(tok.type == TokenType.Word
-            && isANumber(tok.raw)) {
+            && isANumber(tok.raw)
+            && !(tok.raw in functionWords)) {
                 write(encodeSequenceNumber(
                     normalizeSequenceName(tok.raw)[1..$].to!int
                 ));
@@ -73,13 +85,6 @@ void main(string[] args) {
         writeln();
         return;
     }
-    
-    StateInformation state;
-    state.referenceData = args[dataStart..$]
-        .map!BigInt
-        .map!Atom
-        .array;
-    state.functionWords = standardLibrary;
     
     auto fn = code.interpret(state).callableFrom;
     BigInt index = lowerIndex;
