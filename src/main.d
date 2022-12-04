@@ -74,11 +74,14 @@ void main(string[] args) {
         return;
     }
     
-    BigInt[] data = args[dataStart..$]
+    StateInformation state;
+    state.referenceData = args[dataStart..$]
         .map!BigInt
+        .map!Atom
         .array;
     
-    auto fn = code.interpret(data);
+    
+    auto fn = code.interpret(state).callableFrom;
     BigInt index = lowerIndex;
     BigInt max = upperIndex;
     while(infinite || index <= max) {

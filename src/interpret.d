@@ -75,8 +75,9 @@ string normalizeSequenceName(string name) {
 // Map: {...}
 enum TokenType {
     Unknown, Word, Operator, UnaryOperator,
-    Comment, Reference,
+    Comment, Reference, WordReference,
     Integer, Whitespace,
+    Comma,
     LeftParen, RightParen,
     LeftFold, RightFold,
     LeftMap, RightMap,
@@ -85,6 +86,7 @@ struct Token {
     TokenType type;
     string raw;
     Token[] children;
+    uint arity;
     
     string toString() {
         return "Token(" ~ to!string(type) ~ ", " ~ raw ~ ", " ~ children.to!string ~ ")";
@@ -100,6 +102,11 @@ struct Token {
         return type == TokenType.LeftParen
             || type == TokenType.LeftFold
             || type == TokenType.LeftMap;
+    }
+    
+    bool operator() {
+        return unary
+            || type == TokenType.Operator;
     }
 }
 
@@ -167,8 +174,19 @@ Token[] tokenize(string code) {
         }
         else if(code[i] == '$') {
             cur.type = TokenType.Reference;
+            assert(i < code.length, "Expected number after `$`");
             cur.raw ~= code[i++]; // skip initial $
             while(i < code.length && isDigit(code[i])) {
+                cur.raw ~= code[i++];
+            }
+            i--;
+        }
+        else if(code[i] == '&') {
+            cur.type = TokenType.WordReference;
+            cur.raw ~= code[i++]; // skip iniitial &
+            assert(i < code.length, "Expected word after `&`");
+            assert(isWordInitial(code[i]), "Cannot start identifier with " ~ code[i]);
+            while(i < code.length && isWordBody(code[i])) {
                 cur.raw ~= code[i++];
             }
             i--;
@@ -202,6 +220,10 @@ Token[] tokenize(string code) {
             cur.type = TokenType.RightMap;
             cur.raw ~= code[i];
         }
+        else if(code[i] == ',') {
+            cur.type = TokenType.Comma;
+            cur.raw ~= code[i];
+        }
         else if(code[i] == '#') {
             cur.type = TokenType.Comment;
             while(i < code.length && code[i] != '\n') {
@@ -226,6 +248,7 @@ Token[] tokenize(string code) {
                     if(lastSignificantType == TokenType.Unknown
                     || lastSignificantType == TokenType.LeftParen
                     || lastSignificantType == TokenType.Operator
+                    || lastSignificantType == TokenType.Comma
                     || lastSignificantType == TokenType.UnaryOperator) {
                         cur.type = TokenType.UnaryOperator;
                     }
@@ -248,8 +271,13 @@ Token[] shunt(Token[] tokens) {
     Token[] outputQueue;
     Token[][] queueStack;
     Token[] opStack;
+    bool[string] functionWords;
+    int[] arities = [];
     
     foreach(tok; tokens) {
+        debugPlis("shunt", "opstack = ", opStack);
+        debugPlis("shunt", "outqueue = ", outputQueue);
+        debugPlis("shunt");
         final switch(tok.type) {
             case TokenType.Unknown:
                 assert(0, "Unexpected Unknown token: " ~ to!string(tok));
@@ -259,17 +287,35 @@ Token[] shunt(Token[] tokens) {
                 // ignore whitespace & comments
                 break;
             
+            case TokenType.Comma:
+                assert(!arities.empty, "Comma cannot appear at top level");
+                arities.back++;
+                break;
+            
             case TokenType.Integer:
-            case TokenType.Word:
             case TokenType.Reference:
                 outputQueue ~= tok;
                 break;
             
+            case TokenType.WordReference:
+                functionWords[tok.raw[1..$]] = true;
+                opStack ~= tok;
+                break;
+                
+            case TokenType.Word:
+                if(tok.raw in functionWords) {
+                    opStack ~= tok;
+                }
+                else {
+                    outputQueue ~= tok;
+                }
+                break;
+                
             case TokenType.Operator:
                 int myPrecedence = precedence[tok.raw];
                 bool isRightAssociative = rightAssociative[tok.raw];
                 while(
-                    !opStack.empty && !opStack.back.leftParen
+                    !opStack.empty && opStack.back.operator
                     && (
                         opStack.back.unary
                         || (
@@ -277,12 +323,12 @@ Token[] shunt(Token[] tokens) {
                                 ? precedence[opStack.back.raw] >  myPrecedence
                                 : precedence[opStack.back.raw] >= myPrecedence
                         )
-                        // TODO: right associative? (exclude == case)
                     )
                 ) {
                     outputQueue ~= opStack.back;
                     opStack.popBack;
                 }
+                // TODO: handle function
                 opStack ~= tok;
                 break;
             
@@ -292,6 +338,9 @@ Token[] shunt(Token[] tokens) {
             
             case TokenType.LeftParen:
                 opStack ~= tok;
+                queueStack ~= outputQueue;
+                outputQueue = [];
+                arities ~= 1;
                 break;
             
             case TokenType.RightParen:
@@ -302,7 +351,22 @@ Token[] shunt(Token[] tokens) {
                 assert(!opStack.empty && opStack.back.type == TokenType.LeftParen,
                     "Unbalanced right parenthesis");
                 opStack.popBack;
-                // TODO:? handle function calls
+                if(!opStack.empty) {
+                    if(opStack.back.type == TokenType.WordReference) {
+                        debugPlis("shunt", "-- word reference encountered --");
+                        opStack.back.children = outputQueue;
+                        outputQueue = [ opStack.back ];
+                        opStack.popBack;
+                    }
+                    else if(opStack.back.type == TokenType.Word) {
+                        debugPlis("shunt", "-- function word encountered --");
+                        opStack.back.arity = arities.back;
+                        outputQueue ~= opStack.back;
+                        opStack.popBack;
+                    }
+                }
+                outputQueue = queueStack.back ~ outputQueue;
+                arities.popBack;
                 break;
             
             case TokenType.LeftFold:
@@ -352,12 +416,14 @@ Token[] shunt(Token[] tokens) {
     return outputQueue;
 }
 
-SequenceFunction interpret(string code) {
-    return code.tokenize.shunt.interpret([BigInt(0), BigInt(1)]);
+Atom interpret(string code) {
+    StateInformation state;
+    state.referenceData = [Atom(BigInt(0)), Atom(BigInt(1))];
+    return code.tokenize.shunt.interpret(state);
 }
 
-SequenceFunction interpret(string code, BigInt[] referenceData) {
-    return code.tokenize.shunt.interpret(referenceData);
+Atom interpret(string code, StateInformation state) {
+    return code.tokenize.shunt.interpret(state);
 }
 
 alias Atom = SumType!(SequenceFunction, BigInt);
@@ -380,7 +446,25 @@ BigInt execOp(alias op)(BigInt a, BigInt b) {
     }
 }
 
-Atom foldFor(Atom a, Token[] children) {
+struct StateInformation {
+    Atom[] referenceData;
+    Token[][string] functionWords;
+    
+    StateInformation dup() {
+        StateInformation next;
+        next.referenceData = referenceData.dup;
+        // TODO: deep dup?
+        next.functionWords = functionWords.dup;
+        return next;
+    }
+    
+    Atom getReferenceData(T)(T index) {
+        assert(index >= 0 && index < referenceData.length, "Out of bounds reference index");
+        return referenceData[index];
+    }
+}
+
+Atom foldFor(Atom a, Token[] children, StateInformation state) {
     SequenceFunction fn = a.match!(
         (BigInt _) => assert(0, "Cannot fold an integer"),
         (SequenceFunction a) => a,
@@ -394,16 +478,18 @@ Atom foldFor(Atom a, Token[] children) {
         }
         debugPlis("cfold", "children = ", children.map!(a => a.raw));
         debugPlis("cfold", "n = ", n, " ; getting args");
-        BigInt[] args = [ This(n - 1), fn(n) ];
+        Atom[] args = [ Atom(This(n - 1)), Atom(fn(n)) ];
         debugPlis("cfold", "args = ", args);
-        auto subFn = children.interpret(args);
-        auto result = subFn(BigInt(0));
+        auto state = state.dup;
+        state.referenceData = args;
+        auto subFn = children.interpret(state);
+        auto result = subFn.callableFrom()(BigInt(0));
         debugPlis("cfold", args, " -> ", result);
         return result;
     }));
 }
 
-Atom mapFor(Atom a, Token[] children) {
+Atom mapFor(Atom a, Token[] children, StateInformation state) {
     SequenceFunction fn = a.match!(
         (BigInt _) => assert(0, "Cannot fold an integer"),
         (SequenceFunction a) => a,
@@ -412,8 +498,10 @@ Atom mapFor(Atom a, Token[] children) {
         debugPlis("map", "-- start --");
         auto value = fn(n);
         debugPlis("map", "children = ", children.map!(a => a.raw));
-        auto subFn = children.interpret([ value ]);
-        auto result = subFn(BigInt(0));
+        auto state = state.dup;
+        state.referenceData = [ Atom(value) ];
+        auto subFn = children.interpret(state);
+        auto result = subFn.callableFrom()(BigInt(0));
         debugPlis("map", n, " -> ", value, " -> ", result);
         return result;
     });
@@ -444,9 +532,9 @@ Atom trueIndicesFor(Atom a) {
     });
 }
 
-SequenceFunction interpret(Token[] shunted, BigInt[] referenceData) {
+Atom interpret(Token[] shunted, StateInformation state) {
     debugPlis("interpret", "-- start --");
-    debugPlis("interpret", "refdata = ", referenceData);
+    debugPlis("interpret", "state = ", state);
     Atom[] stack;
     foreach(tok; shunted) {
         debugPlis("interpret", "`", tok.raw, "` ",
@@ -460,6 +548,7 @@ SequenceFunction interpret(Token[] shunted, BigInt[] referenceData) {
             case TokenType.LeftParen:
             case TokenType.RightParen:
             case TokenType.Comment:
+            case TokenType.Comma:
                 assert(0, "Unexpected token: " ~ to!string(tok));
             
             case TokenType.Whitespace:
@@ -470,15 +559,32 @@ SequenceFunction interpret(Token[] shunted, BigInt[] referenceData) {
                 stack ~= Atom(BigInt(tok.raw));
                 break;
             
+            case TokenType.WordReference:
+                state.functionWords[tok.raw[1..$]] = tok.children;
+                break;
+            
             case TokenType.Word:
-                string properName = normalizeSequenceName(tok.raw);
-                stack ~= Atom(ftable[properName]);
+                auto fword = tok.raw in state.functionWords;
+                if(fword) {
+                    // function call
+                    auto innerState = state.dup;
+                    auto arity = tok.arity;
+                    debugPlis("interpret", "calling function ", tok.raw, " with ", arity, " arg(s)");
+                    innerState.referenceData = stack[$-arity..$];
+                    stack.popBackN(arity);
+                    stack ~= interpret(*fword, innerState);
+                    break;
+                }
+                else {
+                    // sequence reference
+                    string properName = normalizeSequenceName(tok.raw);
+                    stack ~= Atom(ftable[properName]);
+                }
                 break;
             
             case TokenType.Reference:
                 int index = to!int(tok.raw[1..$]);
-                assert(index >= 0 && index < referenceData.length, "Out of bounds reference index");
-                stack ~= Atom(referenceData[index]);
+                stack ~= state.getReferenceData(index);
                 break;
             
             case TokenType.UnaryOperator:
@@ -520,13 +626,13 @@ SequenceFunction interpret(Token[] shunted, BigInt[] referenceData) {
             case TokenType.RightFold:
                 Atom a = stack.back;
                 stack.popBack;
-                stack ~= foldFor(a, tok.children);
+                stack ~= foldFor(a, tok.children, state);
                 break;
             
             case TokenType.RightMap:
                 Atom a = stack.back;
                 stack.popBack;
-                stack ~= mapFor(a, tok.children);
+                stack ~= mapFor(a, tok.children, state);
                 break;
             
             case TokenType.Operator:
@@ -583,7 +689,11 @@ SequenceFunction interpret(Token[] shunted, BigInt[] referenceData) {
     }
     debugPlis("interpret", "-- done --");
     if(stack.empty) {
-        return callableFrom(Atom(BigInt(0)));
+        return Atom(BigInt(0));
     }
-    return callableFrom(stack.back);
+    return stack.back;
+    // if(stack.empty) {
+        // return callableFrom(Atom(BigInt(0)));
+    // }
+    // return callableFrom(stack.back);
 }
