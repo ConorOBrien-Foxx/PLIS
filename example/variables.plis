@@ -1,0 +1,7 @@
+&foobaz(
+    $x($0 * A12);   # constant sequence of input
+    $y([$0+$1] x);  # cumsum of constant seq
+    y @ $0          # result
+)
+
+foobaz(15)

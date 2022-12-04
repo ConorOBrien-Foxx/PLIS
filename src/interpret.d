@@ -78,6 +78,7 @@ enum TokenType {
     Comment, Reference, WordReference,
     Integer, String, Whitespace,
     Comma, Break,
+    VariableSet,
     LeftParen, RightParen,
     LeftFold, RightFold,
     LeftMap, RightMap,
@@ -89,7 +90,9 @@ struct Token {
     uint arity;
     
     string toString() {
-        return "Token(" ~ to!string(type) ~ ", " ~ raw ~ ", " ~ children.to!string ~ ")";
+        return "Token("
+             ~ to!string(type) ~ ", " ~ raw ~ ", ["
+             ~ children.map!(t => t.raw).join(" ").to!string ~ "])";
     }
     
     bool unary() {
@@ -173,11 +176,20 @@ Token[] tokenize(string code) {
             i--;
         }
         else if(code[i] == '$') {
-            cur.type = TokenType.Reference;
-            assert(i < code.length, "Expected number after `$`");
             cur.raw ~= code[i++]; // add initial $
-            while(i < code.length && isDigit(code[i])) {
-                cur.raw ~= code[i++];
+            assert(i < code.length, "Expected number after `$`");
+            if(isDigit(code[i])) {
+                cur.type = TokenType.Reference;
+                while(i < code.length && isDigit(code[i])) {
+                    cur.raw ~= code[i++];
+                }
+            }
+            else {
+                assert(isWordBody(code[i]), "Expected number or word after `$`");
+                cur.type = TokenType.VariableSet;
+                while(i < code.length && isWordBody(code[i])) {
+                    cur.raw ~= code[i++];
+                }
             }
             i--;
         }
@@ -286,17 +298,26 @@ Token[] shunt(Token[] tokens) {
     Token[][] queueStack;
     Token[] opStack;
     bool[string] functionWords;
+    // bool[string] variableWords;
     int[] arities = [];
     
     foreach(key; standardLibrary.keys) {
         functionWords[key] = true;
     }
     
+    bool lastNeedsLeftParenthesis = false;
+    
     foreach(tok; tokens) {
+        debugPlis("shunt", "token = ", tok);
         debugPlis("shunt", "opstack = ", opStack);
         debugPlis("shunt", "outqueue = ", outputQueue);
         debugPlis("shunt", "queueStack = ", queueStack);
         debugPlis("shunt");
+        
+        assert(!lastNeedsLeftParenthesis || tok.type == TokenType.LeftParen,
+            "Expected left parenthesis following function name");
+        lastNeedsLeftParenthesis = false;
+        
         final switch(tok.type) {
             case TokenType.Unknown:
                 assert(0, "Unexpected Unknown token: " ~ to!string(tok));
@@ -319,12 +340,20 @@ Token[] shunt(Token[] tokens) {
             
             case TokenType.WordReference:
                 functionWords[tok.raw[1..$]] = true;
+                lastNeedsLeftParenthesis = true;
+                opStack ~= tok;
+                break;
+            
+            case TokenType.VariableSet:
+                // variableWords[tok.raw[1..$]] = true;
+                lastNeedsLeftParenthesis = true;
                 opStack ~= tok;
                 break;
                 
             case TokenType.Word:
                 if(tok.raw in functionWords) {
                     opStack ~= tok;
+                    lastNeedsLeftParenthesis = true;
                 }
                 else {
                     outputQueue ~= tok;
@@ -348,7 +377,6 @@ Token[] shunt(Token[] tokens) {
                     outputQueue ~= opStack.back;
                     opStack.popBack;
                 }
-                // TODO: handle function
                 opStack ~= tok;
                 break;
             
@@ -368,6 +396,7 @@ Token[] shunt(Token[] tokens) {
                 opStack ~= tok;
                 queueStack ~= outputQueue;
                 outputQueue = [];
+                // TODO: handle 0-arg functions
                 arities ~= 1;
                 break;
             
@@ -382,6 +411,12 @@ Token[] shunt(Token[] tokens) {
                 if(!opStack.empty) {
                     if(opStack.back.type == TokenType.WordReference) {
                         debugPlis("shunt", "-- word reference encountered --");
+                        opStack.back.children = outputQueue;
+                        outputQueue = [ opStack.back ];
+                        opStack.popBack;
+                    }
+                    else if(opStack.back.type == TokenType.VariableSet) {
+                        debugPlis("shunt", "-- variable set encountered --");
                         opStack.back.children = outputQueue;
                         outputQueue = [ opStack.back ];
                         opStack.popBack;
@@ -441,6 +476,10 @@ Token[] shunt(Token[] tokens) {
         outputQueue ~= opStack.back;
         opStack.popBack;
     }
+    debugPlis("shunt", "content after shunt:");
+    debugPlis("shunt", "opstack = ", opStack);
+    debugPlis("shunt", "outqueue = ", outputQueue);
+    debugPlis("shunt", "queueStack = ", queueStack);
     
     return outputQueue;
 }
@@ -475,16 +514,25 @@ BigInt execOp(alias op)(BigInt a, BigInt b) {
     }
 }
 
-Token[][string] standardLibrary;
+string hashToString(Token[][string] hash) {
+    string rep = "[ ";
+    foreach(key, value; hash) {
+        rep ~= key ~ ": [" ~ value.map!(t => t.raw).join(" ") ~ "], ";
+    }
+    return rep[0..$-2] ~ " ]";
+}
+
 struct StateInformation {
     Atom[] referenceData;
     Token[][string] functionWords;
+    Atom[string] variableWords;
     
     StateInformation dup() {
         StateInformation next;
         next.referenceData = referenceData.dup;
         // TODO: deep dup?
         next.functionWords = functionWords.dup;
+        next.variableWords = variableWords.dup;
         return next;
     }
     
@@ -492,8 +540,23 @@ struct StateInformation {
         assert(index >= 0 && index < referenceData.length, "Out of bounds reference index");
         return referenceData[index];
     }
+    
+    Atom getVariable(string name) {
+        auto ptr = name in variableWords;
+        assert(ptr, "Undefined variable `" ~ name ~ "`");
+        return *ptr;
+    }
+    
+    string toString() {
+        return "StateInformation("
+             ~ referenceData.to!string ~ ", "
+             ~ functionWords.hashToString ~ ", "
+             ~ variableWords.to!string
+             ~ ")";
+    }
 }
 
+Token[][string] standardLibrary;
 static this() {
     standardLibrary["print"] =
         "%$0;%10;$0".tokenize.shunt;
@@ -605,8 +668,17 @@ Atom interpret(Token[] shunted, StateInformation state) {
                 state.functionWords[tok.raw[1..$]] = tok.children;
                 break;
             
+            case TokenType.VariableSet:
+                debugPlis("interpret", "-- setting variable " ~ tok.raw ~ " --");
+                auto value = interpret(tok.children, state);
+                state.variableWords[tok.raw[1..$]] = value;
+                debugPlis("interpret",
+                    "set value of " ~ tok.raw ~ " to " ~ value.to!string);
+                break;
+            
             case TokenType.Word:
                 auto fword = tok.raw in state.functionWords;
+                auto vword = tok.raw in state.variableWords;
                 if(fword) {
                     // function call
                     auto innerState = state.dup;
@@ -616,6 +688,10 @@ Atom interpret(Token[] shunted, StateInformation state) {
                     stack.popBackN(arity);
                     stack ~= interpret(*fword, innerState);
                     break;
+                }
+                else if(vword) {
+                    debugPlis("interpret", "retrieving value of variable $" ~ tok.raw);
+                    stack ~= *vword;
                 }
                 else {
                     // sequence reference
