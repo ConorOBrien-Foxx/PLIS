@@ -164,10 +164,14 @@ bool isWordBody(T)(T c) { return isAlphaNum(c) || c == '_'; }
 
 // TODO: stream tokens
 Token[] tokenize(string code) {
-    TokenType lastSignificantType;
     Token[] build;
+    TokenType lastSignificantType;
+    bool[] parenIsDataStack = [];
+    bool lastWasFunctor = false;
+    bool lastRightParenWasFunctor = false;
     for(uint i = 0; i < code.length; i++) {
         Token cur;
+        bool thisRightParenIsFunctor = false;
         if(isWordInitial(code[i])) {
             cur.type = TokenType.Word;
             while(i < code.length && isWordBody(code[i])) {
@@ -227,10 +231,13 @@ Token[] tokenize(string code) {
         else if(code[i] == '(') {
             cur.type = TokenType.LeftParen;
             cur.raw ~= code[i];
+            parenIsDataStack ~= lastWasFunctor;
         }
         else if(code[i] == ')') {
             cur.type = TokenType.RightParen;
             cur.raw ~= code[i];
+            thisRightParenIsFunctor = parenIsDataStack.back;
+            parenIsDataStack.popBack;
         }
         else if(code[i] == '[') {
             cur.type = TokenType.LeftFold;
@@ -282,7 +289,8 @@ Token[] tokenize(string code) {
                     || lastSignificantType == TokenType.Operator
                     || lastSignificantType == TokenType.Break
                     || lastSignificantType == TokenType.Comma
-                    || lastSignificantType == TokenType.UnaryOperator) {
+                    || lastSignificantType == TokenType.UnaryOperator
+                    || lastRightParenWasFunctor) {
                         cur.type = TokenType.UnaryOperator;
                     }
                     cur.raw = op;
@@ -294,6 +302,9 @@ Token[] tokenize(string code) {
         assert(cur.type != TokenType.Unknown, "Unknown token: " ~ code[i]);
         if(cur.type != TokenType.Whitespace && cur.type != TokenType.Comment) {
             lastSignificantType = cur.type;
+            lastWasFunctor = cur.type == TokenType.WordReference
+                          || cur.type == TokenType.VariableSet;
+            lastRightParenWasFunctor = thisRightParenIsFunctor;
         }
         build ~= cur;
     }
@@ -567,12 +578,15 @@ struct StateInformation {
 
 Token[][string] standardLibrary;
 static this() {
-    standardLibrary["print"] =
-        "%$0;%10;$0".tokenize.shunt;
-    standardLibrary["catat"] =
-        "$mask(A7@(A1477/$1))mask*$0.$1+(1-mask)*$2>>$1".tokenize.shunt;
-    standardLibrary["digits"] =
-        "$size(A055642@$0)($0/A011557%10)@(size-A27).size".tokenize.shunt;
+    string[string] codeLib = [
+        "print": "%$0;%10;$0",
+        "catat": "$mask(A7@(A1477/$1))mask*$0.$1+(1-mask)*$2>>$1",
+        "digits": "$size(A055642@$0)($0/A011557%10)@(size-A27).size",
+        "strlen": "@(A7@$0)@0",
+    ];
+    foreach(key, value; codeLib) {
+        standardLibrary[key] = value.tokenize.shunt;
+    }
 }
 
 Atom foldFor(Atom a, Token[] children, StateInformation state) {
