@@ -8,6 +8,7 @@ IF "%1"=="clean" GOTO :CLEAN
     SET FLAGS=-g -w
     REM TODO: surely there's a way to emulate src/*.d
     SET FILES=src/main.d src/impl.d src/interpret.d src/debugger.d
+    SET FILES=%FILES% src/parse.d src/shunt.d
     dmd %FLAGS% %FILES% -of=plis.exe
     SET Error=%ERRORLEVEL%
     GOTO :End

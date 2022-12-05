@@ -3,6 +3,7 @@ module plis.main;
 import plis.debugger;
 import plis.impl;
 import plis.interpret;
+import plis.parse;
 
 import std.algorithm.iteration : map;
 import std.bigint;
