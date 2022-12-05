@@ -11,6 +11,7 @@ import std.file : read;
 import std.getopt;
 import std.range : array;
 import std.stdio;
+import std.sumtype;
 
 void main(string[] args) {
     bool autoGolf, encode, decode, help, infinite;
@@ -86,12 +87,17 @@ void main(string[] args) {
         return;
     }
     
-    auto fn = code.interpret(state).callableFrom;
-    BigInt index = lowerIndex;
-    BigInt max = upperIndex;
-    while(infinite || index <= max) {
-        write(fn(index), " ");
-        index++;
-    }
-    writeln();
+    auto result = code.interpret(state);
+    result.match!(
+        (BigInt n) => writeln(n),
+        (SequenceFunction fn) {
+            BigInt index = lowerIndex;
+            BigInt max = upperIndex;
+            while(infinite || index <= max) {
+                write(fn(index), " ");
+                index++;
+            }
+            writeln();
+        },
+    );
 }
